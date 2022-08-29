@@ -1,0 +1,95 @@
+/*
+ * bubble_sort.s
+ *
+ *  Created on: 4/8/2022
+ *      Author: Shankar
+ */
+   .syntax unified
+	.cpu cortex-m4
+	.fpu softvfp
+	.thumb
+
+		.global bubble_sort
+
+@ Start of executable code
+.section .text
+
+@ EE2028 Assignment 1, Sem 1, AY 2022/23
+@ (c) ECE NUS, 2022
+@ Bubble sort arr in decending order
+
+@ Write Student 1’s Name here: Shankar
+@ Write Student 2’s Name here: Wei Heng
+
+@ You could create a look-up table of registers here:
+
+@ 	R0 contains the address of the first element in the array
+@ 	R1 contains the literal value 6 (
+@	R2 i; outer loop counter
+@	R3 j; inner loop counter
+@	R4 len(array) - 1
+@	R5 temporary register
+@	R6 temporary register
+
+@ write your program from here:
+bubble_sort:
+	PUSH {R14}
+	@Initialise the registers here
+	LDR R2, =#0 @ i value; outer loop
+	LDR R3, =#0 @ j value; inner loop
+	SUB R4, R1, #1 @ R4 = N(Number of elements)-1
+	LDR R5, =#0 @ temporary register
+	LDR R6, =#0 @ temporary register
+	LDR R7, =#0 @ temporary register
+
+	BL SUBROUTINE
+
+	POP {R14}
+
+	BX LR
+
+SUBROUTINE:
+	CMP R2, R4 @ check if R2 == 5; if its equal ...
+	IT EQ @ Set the equal flag when R2 - R4 = 0
+	BXEQ LR @if the loop has finished, end the loop.
+
+	PUSH {R0}
+
+	B LOOP
+	@ <come here>
+	POP {R0}
+
+	ADD R2, #1 @ Increment the outer loop counter
+
+	B SUBROUTINE @ Loop SUBROUTINE
+	@ BX LR
+LOOP:
+	CMP R3, R4 @ check if R3 == 5; if its equal ...
+	IT EQ @ Set the equal flag when R2 - R4 = 0
+	BXEQ LR @if the loop has finished, end the loop.
+
+	LDR R5, [R0, #0] @ 34 --> 32
+	LDR R6, [R0, #4] @ 32 --> 34
+
+	CMP R6, R5 @ R6 - R5
+	ITTTT MI @ if the result is negative, conduct the swap operation
+	MOVMI R7, R5 @ Swap the bigger value to temp R7
+	MOVMI R5, R6 @ Swap the smaller value to R5
+	MOVMI R6, R7 @ Swap the value in temp R7 R6
+	STRMI R5, [R0]
+
+	ITT MI @ if the result is negative, conduct the swap operation
+	ADDMI R0, 4
+	STRMI R6, [R0]
+
+	IT PL
+	ADDPL R0, 4
+
+	ADD R3, #1 @ Increment the inner loop counter
+
+	B LOOP
+
+
+@ Store result in SRAM (4 bytes), static random access memory
+.lcomm	ADDRESS	4
+.end

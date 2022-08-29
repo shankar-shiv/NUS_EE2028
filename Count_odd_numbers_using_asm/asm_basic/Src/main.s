@@ -45,7 +45,7 @@ main:
 	BL function1 @ jmp to function1
 
 function1:
-	CMP R8, #100 @ check if R8 == 100
+	CMP R8, #100 @ check if R8 == 100; if its equal, end the loop.
 	IT EQ
 	BEQ HALT @if the loop has finished, end
 
@@ -53,15 +53,15 @@ function1:
 	UDIV R0, R8, R6 @ 50 / 2 = 25, 51 / 2 = 25
 	MLS R1, R6, R0, R8 @ R0 = R8 - (R6 * R0); gets the remainder either 1 or 0
 
-	@
+	@ if (odd_value) .... else ...
 	CMP R1, #1 @ if its an odd value by 1-1=0
 	ITTTE EQ
 	ADDEQ R3, #4 @ Increment the memory address of ADDRESS + 4
-	STREQ R8, [R3] @ Store the value at that memory address
+	STREQ R8, [R3] @ Store the odd value at that memory address
 	ADDEQ R8, #1 @ Increment the counter
 	ADDNE R8, #1 @ Just increment the counter
 
-	B function1
+	B function1 @ Loop all to function1
 
 HALT:
 	B HALT
