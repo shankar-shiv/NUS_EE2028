@@ -13,3 +13,6 @@
 ## Question 3: What can you do if you have used up all the general purpose registers and you need to store some more values during processing?
 - Use and re-use the registers in a systematic way. Maintain a data dictionary or table to help you keep track of the storage of different terms in different registers at different times.
 
+
+1st Try
+- replace the code inside SUBROUTINE into bubble_sort and see how it goes. 

@@ -42,6 +42,9 @@ int main(void)
 	swap = bubble_sort((int*)arr, (int)M);
 	printf("After %d rounds of swap, the array is sorted as: \n{ ", swap);
 
+	// int *p = 0x20017FE4;
+	// printf("%d \n", *p);
+
 	for (i=0; i<M; i++)
 	{
 		printf("%d ", arr[i]);

@@ -31,9 +31,10 @@
 @	R5 temporary register
 @	R6 temporary register
 
+
 @ write your program from here:
 bubble_sort:
-	PUSH {R14}
+
 	@Initialise the registers here
 	LDR R2, =#0 @ i value; outer loop
 	LDR R3, =#0 @ j value; inner loop
@@ -41,13 +42,42 @@ bubble_sort:
 	LDR R5, =#0 @ temporary register
 	LDR R6, =#0 @ temporary register
 	LDR R7, =#0 @ temporary register
+	LDR R8, =#0 @ Swap Counter
 
-	BL SUBROUTINE
+	@ START
+	@B SUBROUTINE -- Backup Plan
+	FUNCTION1:
+
+	@ Reset the variables
+	LDR R3, =#0 @ j value; inner loop
+	LDR R5, =#0 @ temporary register
+	LDR R6, =#0 @ temporary register
+	LDR R7, =#0 @ temporary register
+
+	PUSH {R14} @ Store the return address value to Stack register safely!
+
+	CMP R2, R4 @ check if R2 == 5; if its equal ...
+	ITT EQ @ Set the equal flag when R2 - R4 = 0
+	MOVEQ R0, R8
+	BXEQ LR @if the loop has finished, end the loop.
+
+	PUSH {R0}
+
+	BL LOOP
+	@ <come here>
+	POP {R0}
+
+	ADD R2, #1 @ Increment the outer loop counter
 
 	POP {R14}
 
-	BX LR
+	B FUNCTION1
+	@ END
 
+	@ Should not execute HERE!!!
+	@ BX LR
+
+@ Backup Plan
 SUBROUTINE:
 	CMP R2, R4 @ check if R2 == 5; if its equal ...
 	IT EQ @ Set the equal flag when R2 - R4 = 0
@@ -77,10 +107,11 @@ LOOP:
 	MOVMI R5, R6 @ Swap the smaller value to R5
 	MOVMI R6, R7 @ Swap the value in temp R7 R6
 	STRMI R5, [R0]
-
-	ITT MI @ if the result is negative, conduct the swap operation
+	@ Extension of the above code; when the result is negative
+	ITTT MI @ if the result is negative, conduct the swap operation
 	ADDMI R0, 4
 	STRMI R6, [R0]
+	AddMI R8, #1 @ Add the swap counter, if swap is done
 
 	IT PL
 	ADDPL R0, 4
@@ -91,5 +122,5 @@ LOOP:
 
 
 @ Store result in SRAM (4 bytes), static random access memory
-.lcomm	ADDRESS	4
+@.lcomm	ADDRESS	4
 .end
