@@ -16,3 +16,10 @@
 
 1st Try
 - replace the code inside SUBROUTINE into bubble_sort and see how it goes. 
+
+Need to implement this
+1. Sorting stop condition: no swap done in 1 iteration
+  ```python
+  if swap == 0:
+    stop()
+  ```

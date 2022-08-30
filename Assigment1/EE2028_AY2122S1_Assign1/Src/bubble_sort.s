@@ -24,16 +24,20 @@
 @ You could create a look-up table of registers here:
 
 @ 	R0 contains the address of the first element in the array
-@ 	R1 contains the literal value 6 (
+@ 	R1 contains the literal value 6
 @	R2 i; outer loop counter
 @	R3 j; inner loop counter
 @	R4 len(array) - 1
 @	R5 temporary register
 @	R6 temporary register
+@	R7 temporary register
+@	R8 Global Swap Counter
 
 
 @ write your program from here:
 bubble_sort:
+
+	PUSH {R2-R8}
 
 	@Initialise the registers here
 	LDR R2, =#0 @ i value; outer loop
@@ -44,9 +48,10 @@ bubble_sort:
 	LDR R7, =#0 @ temporary register
 	LDR R8, =#0 @ Swap Counter
 
+	PUSH {R14}
 	@ START
 	@B SUBROUTINE -- Backup Plan
-	FUNCTION1:
+FUNCTION1:
 
 	@ Reset the variables
 	LDR R3, =#0 @ j value; inner loop
@@ -54,22 +59,24 @@ bubble_sort:
 	LDR R6, =#0 @ temporary register
 	LDR R7, =#0 @ temporary register
 
-	PUSH {R14} @ Store the return address value to Stack register safely!
+	@PUSH {R14} @ Store the return address value to Stack register safely!
 
 	CMP R2, R4 @ check if R2 == 5; if its equal ...
-	ITT EQ @ Set the equal flag when R2 - R4 = 0
+	ITTTT EQ @ Set the equal flag when R2 - R4 = 0
 	MOVEQ R0, R8
+	POPEQ {R14}
+	POPEQ {R2-R8}
 	BXEQ LR @if the loop has finished, end the loop.
 
 	PUSH {R0}
 
 	BL LOOP
-	@ <come here>
+	@ <After LOOP ends, come here>
 	POP {R0}
 
 	ADD R2, #1 @ Increment the outer loop counter
 
-	POP {R14}
+	@POP {R14}
 
 	B FUNCTION1
 	@ END
@@ -109,11 +116,11 @@ LOOP:
 	STRMI R5, [R0]
 	@ Extension of the above code; when the result is negative
 	ITTT MI @ if the result is negative, conduct the swap operation
-	ADDMI R0, 4
+	ADDMI R0, 4 @ Postman Walking to next address
 	STRMI R6, [R0]
-	AddMI R8, #1 @ Add the swap counter, if swap is done
+	AddMI R8, #1 @ Add the total_swap counter, if swap is done
 
-	IT PL
+	IT PL @ If dont need to swap, come here
 	ADDPL R0, 4
 
 	ADD R3, #1 @ Increment the inner loop counter

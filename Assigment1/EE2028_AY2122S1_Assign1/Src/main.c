@@ -20,8 +20,8 @@
 
 #include "stdio.h"
 
-// #define M 6	 // No. of numbers in array
-#define M 2	 // No. of numbers in array
+#define M 6	 // No. of numbers in array
+// #define M 2	 // No. of numbers in array
 
 // Necessary function to enable printf() using semihosting
 extern void initialise_monitor_handles(void);
@@ -34,8 +34,8 @@ int main(void)
 	// Necessary function to enable printf() using semihosting
 	initialise_monitor_handles();
 
-	// int arr[M] = {18, 34, 32, 75, 11, 97};
-	int arr[M] = {18, 9};
+	int arr[M] = {18, 34, 32, 75, 11, 97};
+	// int arr[M] = {18, 9};
 	int swap,i;  // no. of total swaps
 
 	// Bubble sort with bubble_sort.s
