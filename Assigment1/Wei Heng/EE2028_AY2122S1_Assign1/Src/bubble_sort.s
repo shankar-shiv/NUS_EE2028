@@ -26,13 +26,13 @@
 
 @ 	R0 contains the address of the first element in the array
 @ 	R1 contains the literal value 6
-
-@	R2 i; outer loop counter and j; inner loop counter 
-@	R3 number of elements - 1
-@	R4 temporary register used to swap elements
+@	R2 i; outer loop counter
+@	R3 j; inner loop counter
+@	R4 len(array) - 1
 @	R5 temporary register used to swap elements
-@	R6 Total Swap Counter; increment by 1 if a swap operation is perfomed
-@ 	R7 Local Swap Counter; if (R9 == no.of elements) {array is sorted so exit the asm function} else {set to 0}
+@	R6 temporary register used to swap elements
+@	R8 Total Swap Counter; increment by 1 if a swap operation is perfomed
+@ 	R9 Local Swap Counter; if (R9 == no.of elements) {array is sorted so exit the asm function} else {set to 0}
 
 
 @ write your program from here:
