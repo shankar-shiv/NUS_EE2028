@@ -81,9 +81,9 @@ Disassembly of section .text:
  80001cc:	0800604c 	.word	0x0800604c
 
 080001d0 <bubble_sort>:
+@	R6 Total Swap Counter; increment by 1 if a swap operation is perfomed
+@ 	R7 Local Swap Counter; if (R9 == no.of elements) {array is sorted so exit the asm function} else {set to 0}
 
-
-@ write your program from here:
 bubble_sort:
 
 	PUSH {R2-R7} @ Help us preserve the "marking" when we navigate back to main function in main.c
@@ -91,8 +91,8 @@ bubble_sort:
 	PUSH {R14} @ Store the return address value to Stack Register safely used to navigate back to main function in main.c
  80001d2:	b500      	push	{lr}
 
-	@Initialise the registers here -- Only Execute for the first time
-	LDR R2, =#0 @ Loops counter
+	@ Initialize the registers here -- Execute this portion for the first time ONLY
+	LDR R2, =#0 @ Set Loops counter to 0
  80001d4:	f04f 0200 	mov.w	r2, #0
 	SUB R3, R1, #1 @ R3 = N(Number of elements)-1
  80001d8:	f1a1 0301 	sub.w	r3, r1, #1
@@ -105,7 +105,7 @@ bubble_sort:
 	LDR R7, =#0 @ Zero Swap Counter
  80001e8:	f04f 0700 	mov.w	r7, #0
 
-	B OUTER_LOOP
+	B OUTER_LOOP @ Branch to OUTER_LOOP
  80001ec:	e7ff      	b.n	80001ee <OUTER_LOOP>
 
 080001ee <OUTER_LOOP>:
@@ -113,26 +113,26 @@ bubble_sort:
 OUTER_LOOP:
 	CMP R2, R3 @ check if outer loop counter == 5; if its equal, we have gone through the max no. of iterations
  80001ee:	429a      	cmp	r2, r3
-	ITTTT EQ @ Set the equal flag when R2 - R4 = 0
+	ITTTT EQ @ Set the equal flag when R2 - R3 = 0
  80001f0:	bf01      	itttt	eq
-	MOVEQ R0, R6
+	MOVEQ R0, R6 @ Move R6 total swap counter value to R0 to return back to the main function in main.c
  80001f2:	4630      	moveq	r0, r6
 	POPEQ {R14}
  80001f4:	f85d eb04 	ldreq.w	lr, [sp], #4
-	POPEQ {R2-R7} @ Set the R2-R9 registers back to the original values
+	POPEQ {R2-R7} @ Set the R2-R7 registers back to the original values
  80001f8:	bcfc      	popeq	{r2, r3, r4, r5, r6, r7}
 	BXEQ LR @if the loop has finished, end the loop to return back to main function in main.c file
  80001fa:	4770      	bxeq	lr
 
-	CMP R7, R3 @ Check if zero swap counter == 5; if its equal meaning the array is sorted.
+	CMP R7, R3 @ Check if zero swap counter == 5; if its equal, meaning the array is already sorted.
  80001fc:	429f      	cmp	r7, r3
-	ITTTT EQ @ Set the equal flag when R9 - R4 = 0
+	ITTTT EQ @ Set the equal flag when R7 - R3 = 0
  80001fe:	bf01      	itttt	eq
-	MOVEQ R0, R6
+	MOVEQ R0, R6 @ Move R6 total swap counter value to R0 to return back to the main function in main.c
  8000200:	4630      	moveq	r0, r6
 	POPEQ {R14}
  8000202:	f85d eb04 	ldreq.w	lr, [sp], #4
-	POPEQ {R2-R7} @ Set the R2-R9 registers back to the original values
+	POPEQ {R2-R7} @ Set the R2-R7 registers back to the original values
  8000206:	bcfc      	popeq	{r2, r3, r4, r5, r6, r7}
 	BXEQ LR @if the loop has finished, end the loop to return back to main function in main.c file
  8000208:	4770      	bxeq	lr
@@ -145,9 +145,9 @@ OUTER_LOOP:
 	@ Reset the variables after every ith iteration (every outer loop iteration)
 	LDR R2, =#0 @ initialise counter for INNER_LOOP usage
  800020e:	f04f 0200 	mov.w	r2, #0
-	LDR R4, =#0 @ temporary register used to store elements
+	LDR R4, =#0 @ temporary register used to store elements; not necessary to perform this instruction
  8000212:	f04f 0400 	mov.w	r4, #0
-	LDR R5, =#0 @ temporary register used to store elements
+	LDR R5, =#0 @ temporary register used to store elements; not necessary to perform this instruction
  8000216:	f04f 0500 	mov.w	r5, #0
 	LDR R7, =#0 @ set zero swap counter to 0
  800021a:	f04f 0700 	mov.w	r7, #0
@@ -155,10 +155,10 @@ OUTER_LOOP:
 	BL INNER_LOOP
  800021e:	f000 f805 	bl	800022c <INNER_LOOP>
 
-	@ After INNER_LOOP completed executes the following:
+	@ After INNER_LOOP completed, execute the following:
 	POP {R0} @ Reset the R0 pointer back to the memory address pointing to the first element in the array
  8000222:	bc01      	pop	{r0}
-	POP {R2} @ Retrieving OUTER_LOOP counter
+	POP {R2} @ Retrieving previous OUTER_LOOP counter
  8000224:	bc04      	pop	{r2}
 	ADD R2, #1 @ OUTER_LOOP counter increment
  8000226:	f102 0201 	add.w	r2, r2, #1
@@ -185,9 +185,9 @@ INNER_LOOP:
  8000236:	42a5      	cmp	r5, r4
 	ITTTT MI @ If the result of the above operation is negative, perform the swap operation
  8000238:	bf41      	itttt	mi
-	STRMI R5, [R0] @ Storing smaller value to address
+	STRMI R5, [R0] @ Storing smaller value to address R0
  800023a:	6005      	strmi	r5, [r0, #0]
-	ADDMI R0, #4 @ Get next address
+	ADDMI R0, #4 @ Increment R0 pointer by 4
  800023c:	3004      	addmi	r0, #4
 	STRMI R4, [R0] @ Storing larger values to next address
  800023e:	6004      	strmi	r4, [r0, #0]
@@ -198,7 +198,7 @@ INNER_LOOP:
  8000242:	bf5c      	itt	pl
 	ADDPL R0, #4 @ Move R0 pointer by 4 bytes to point to the next subsequent memory location
  8000244:	3004      	addpl	r0, #4
-	ADDPL R7, #1 @ IncrementS the zero swap counter
+	ADDPL R7, #1 @ Increments the zero swap counter by 1
  8000246:	3701      	addpl	r7, #1
 
 	ADD R2, #1 @ Increment the INNER_LOOP counter

@@ -89,4 +89,3 @@ int BubbleSort(int arr[], int size) {
 	}
 	return total_swap_counter;
 }
-
