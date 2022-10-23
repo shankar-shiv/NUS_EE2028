@@ -7,52 +7,81 @@
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_hsensor.h"
 #include "stdio.h"
+#include "stdlib.h"  // use stdlib.h header file to use abs() function.
 #include "stdbool.h"
 #include "string.h"
 #include "math.h"
+#include "ctype.h"
 
 /* Declare Constants ------------------------------------------------------------------*/
-#define GYRO_THRESHOLD 20.0
-#define TEMP_THRESHOLD 38
-#define MAG_THRESHOLD 0.4
-#define HUM_THRESHOLD 30.0
-#define PRES_THRESHOLD 110000.0
+#define GYRO_THRESHOLD 20.0 // based on testing
+#define TEMP_THRESHOLD_MIN -20.0 // -20 degrees Celcius
+#define TEMP_THRESHOLD_MAX 70.0 // 70 degrees Celcius
+
+#define MAG_THRESHOLD 2.0 // Max is 4
+#define HUM_THRESHOLD_MAX 48.0
+
+#define PRES_THRESHOLD_MIN 90000.0
+#define PRES_THRESHOLD_MAX 105000.0
+
 #define WARNING 1
 #define SAFE 0
 
 /* Function Declarations ------------------------------------------------------------------*/
-extern void initialise_monitor_handles(void); // for semi-hosting support (printf)
+// extern void initialise_monitor_handles(void); // for semi-hosting support (printf)
 static void UART1_Init(void);
 static void mode_selection(void);
 static void MX_GPIO_Init(void);
 static void read_accelerometer(void);
-static void read_temperature(void);
+static void exploration_warning(void);
 void SystemClock_Config(void);
 static void exploration(void);
-static void reset(void);
+static void battle(void);
+static void reset_sensor_warning_flags(void);
 
 /* Global Variables ------------------------------------------------------------------*/
 uint32_t T1, T2; // counting single and double press
 UART_HandleTypeDef huart1; // huart1 variable of type UART_HANDLER
 uint8_t flag = 0, press = 0, EXPLORATION = 1, EXPLORATION_WARNING_STATE = 0,
-		BATTLE = 0, BATTLE_WARNING_STATE = 0;
-char message_print[64]; // array buffer used for UART1 transmission
-uint time_one_second = 0;
+		BATTLE = 0, BATTLE_WARNING_STATE = 0, count_warnings = 0;
 
-typedef struct exploration_t {
+char message_print[300]; // array buffer used for UART1 transmission
+
+uint32_t time_EXPLORATION_SENSOR = 0;
+uint32_t time_EXPLORATION_WARNING_LED = 0;
+
+uint32_t time_BATTLE_SENSOR = 0;
+uint32_t time_BATTLE_WARNING_LED = 0;
+uint32_t time_BATTLE_LED = 0;
+
+volatile uint8_t GYROSCOPE_Flag = SAFE, MAGNETOMETER_Flag = SAFE,
+		PRESSURE_Flag = SAFE, HUMIDITY_Flag = SAFE;
+
+typedef struct sensor_data_t {
+	uint8_t battery_level;
+
+	float temperature_data;
 	float humidity_data;
 	float pressure_data;
+	float altitude;
+
 	int16_t magnetometer_raw_data[3];
 	float magnetometer_data[3];
-} exploration_t;
 
-exploration_t exploration_t_1;
+	int16_t accelerometer_raw_data[3];
+	float accelerometer_data[3];
+
+	float gyroscope_raw_data[3];
+	float gyroscope_data[3];
+
+} sensor_data_t;
+// Initialize 2 structs for Exploration and Battle modes
+sensor_data_t sensor_data_t_exploration;
+sensor_data_t sensor_data_t_battle;
 
 /**
  * @brief  External Interrupt to detect 1st button press and 2nd button press
- *
  * @note
- *
  * @retval	None
  */
 HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
@@ -109,21 +138,22 @@ int main(void) {
 }
 
 /**
- * @brief  Selects different modes such as Exploration and Battle and selects
+ * @brief  	Selects different modes such as Exploration and Battle and selects
  *			different states such as Normal and Warning in the respective modes.
  * @note
  *
- * @retval
+ * @retval	None
  */
 static void mode_selection() {
 	/* Exploration Mode */
 	if (EXPLORATION == 1 && EXPLORATION_WARNING_STATE == 0 && BATTLE == 0
-			&& press == 0) {
+			&& press <= 1) {
 		// Normal state
 		exploration();
+		press = 0;
 	} else if (EXPLORATION == 1 && EXPLORATION_WARNING_STATE == 1) {
 		// Come to the Warning State through interrupts or polling
-		// exploration_warning();
+		exploration_warning();
 		if (press == 1) {
 			// Clear the warning and go back to Exploration mode
 			EXPLORATION_WARNING_STATE = 0;
@@ -131,10 +161,20 @@ static void mode_selection() {
 			press = 0;
 		} else if (press == 2) {
 			// Ignore it
+			press = 0;
 		}
 	} else if (EXPLORATION == 1 && EXPLORATION_WARNING_STATE == 0
 			&& press == 2) {
 		// Change to Battle Mode
+		/* A message "Entering BATTLE mode" is sent once to Cyrix's Lab once
+		 * immediately upon entering the BATTLE mode.
+		 * The press flag is cleared later in mode_selection()
+		 */
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "Entering BATTLE Mode \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+
 		EXPLORATION = 0;
 		BATTLE = 1;
 		press = 0;
@@ -142,21 +182,29 @@ static void mode_selection() {
 
 	/* Battle Mode */
 	if (EXPLORATION == 0 && BATTLE_WARNING_STATE == 0 && BATTLE == 1
-			&& press == 0) {
+			&& press <= 1) {
 		// Battle state
-		// battle();
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Battle Mode \r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		battle();
+		press = 0;
+	} else if (EXPLORATION == 0 && BATTLE_WARNING_STATE == 0 && BATTLE == 1
+			&& press == 1) {
+		/*	In BATTLE_MODE, without WARNING:
+		 * 	i.e., when Pixie is not sending 'SOS' message to Cyrix,
+		 * 	single press triggers BATTERY_CHARGING,
+		 * 	i.e., after single press, Fluxer is charged with 1/10 energy
+		 * 	of its capacity.*/
+		// charge_battery();
+		BATTLE = 1;
+		press = 0; // reset the press flag
 	} else if (BATTLE == 1 && BATTLE_WARNING_STATE == 1) {
 		if (press == 1) {
-			// Clear the warning and go back to Exploration mode
+			// Clear the warning and go back to Battle mode
 			BATTLE_WARNING_STATE = 0;
 			BATTLE = 1;
 			press = 0;
 		} else if (press == 2) {
 			// Ignore it
+			press = 0;
 		}
 	} else if (BATTLE == 1 && BATTLE_WARNING_STATE == 0 && press == 2) {
 		// Change to EXPLORATION Mode
@@ -167,18 +215,300 @@ static void mode_selection() {
 }
 
 /**
- * @brief  Selects different modes such as Exploration and Battle and selects
- *			different states such as Normal and Warning in the respective modes.
- * @note
- *
- * @retval
+ * @brief	In Exploration Mode,
+ * 			Gyroscope, Magnetometer, Pressure, Humidity sensor readings
+ * 			are send to Cyrix lab periodically.
+ * @note	The sensors are grouped in a struct for easier data manipulation.
+ * @retval	None
  */
+
+static void exploration(void) {
+	// In EXPLORATION MODE, only those sensors mounted on Pixie are read periodically every ONE second
+	if (HAL_GetTick() - time_EXPLORATION_SENSOR > 1000) {
+
+		// Reset variables
+		sensor_data_t_exploration.humidity_data = 0;
+		sensor_data_t_exploration.pressure_data = 0;
+		sensor_data_t_exploration.magnetometer_raw_data[3] = 0;
+		sensor_data_t_exploration.magnetometer_data[3] = 0;
+		sensor_data_t_exploration.gyroscope_raw_data[3] = 0;
+		sensor_data_t_exploration.gyroscope_data[3] = 0;
+
+		// Read Humidity readings
+		sensor_data_t_exploration.humidity_data = BSP_HSENSOR_ReadHumidity();
+		// Read the pressure in units (Pascal)
+		// One hectopascal(hPa) is equal to exactly 100 Pascals.
+		sensor_data_t_exploration.pressure_data = BSP_PSENSOR_ReadPressure()
+				* 100.0f;
+
+		// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
+		BSP_MAGNETO_GetXYZ(sensor_data_t_exploration.magnetometer_raw_data);
+
+		sensor_data_t_exploration.magnetometer_data[0] =
+				(float) sensor_data_t_exploration.magnetometer_raw_data[0]
+						/ 1000.0f;
+		sensor_data_t_exploration.magnetometer_data[1] =
+				(float) sensor_data_t_exploration.magnetometer_raw_data[1]
+						/ 1000.0f;
+		sensor_data_t_exploration.magnetometer_data[2] =
+				(float) sensor_data_t_exploration.magnetometer_raw_data[2]
+						/ 1000.0f;
+
+		// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
+		BSP_GYRO_GetXYZ(sensor_data_t_exploration.gyroscope_raw_data);
+		sensor_data_t_exploration.gyroscope_data[0] =
+				sensor_data_t_exploration.gyroscope_raw_data[0] / 1000.0f;
+		sensor_data_t_exploration.gyroscope_data[1] =
+				sensor_data_t_exploration.gyroscope_raw_data[1] / 1000.0f;
+		sensor_data_t_exploration.gyroscope_data[2] =
+				sensor_data_t_exploration.gyroscope_raw_data[2] / 1000.0f;
+
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print,
+				"G:%0.2f:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss), P:%0.2f (Pa), H:%0.2f (%%RH) \r\n",
+				sensor_data_t_exploration.gyroscope_data[0],
+				sensor_data_t_exploration.gyroscope_data[1],
+				sensor_data_t_exploration.gyroscope_data[2],
+				sensor_data_t_exploration.magnetometer_data[0],
+				sensor_data_t_exploration.magnetometer_data[1],
+				sensor_data_t_exploration.magnetometer_data[2],
+				sensor_data_t_exploration.pressure_data,
+				sensor_data_t_exploration.humidity_data);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+
+		time_EXPLORATION_SENSOR = HAL_GetTick();
+	}
+
+	// EXPLORATION LED will always be ON
+	HAL_GPIO_WritePin(GPIOB, LED2_Pin, GPIO_PIN_SET);
+
+	/**
+	 * @brief	Check if the sensors have reached their threshold, then if ANY 2
+	 * 			of the sensors have exceeded their maximum/minimum threshold,
+	 * 			go to the WARNING state.
+	 * @steps	1. Raise flags if threshold is reached.
+	 * 			2. Type-cast variables explicitly to (int) to use abs()
+	 * 			3. Reset flags to SAFE before leaving exploration mode
+	 * 			and reaching to warning state.
+	 * 			4. Reset count_warnings counter to 0.
+	 * 			5. Set the EXPLORATION_WARNING_STATE flag to 1.
+	 */
+	if ((abs((int) sensor_data_t_exploration.magnetometer_data[0])
+			>= MAG_THRESHOLD
+			|| abs((int) sensor_data_t_exploration.magnetometer_data[1])
+					>= MAG_THRESHOLD
+			|| abs((int) sensor_data_t_exploration.magnetometer_data[2])
+					>= MAG_THRESHOLD) && MAGNETOMETER_Flag != WARNING) {
+
+		// Set MAGNETOMETER_Flag to WARNING
+		MAGNETOMETER_Flag = WARNING;
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "Magnetometer Flag enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		count_warnings += 1;
+	}
+
+	if ((abs((int) sensor_data_t_exploration.gyroscope_data[0])
+			>= GYRO_THRESHOLD
+			|| abs((int) sensor_data_t_exploration.gyroscope_data[1])
+					>= GYRO_THRESHOLD) && GYROSCOPE_Flag != WARNING) {
+
+		// Set GYROSCOPE_Flag to WARNING
+		GYROSCOPE_Flag = WARNING;
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "Gyroscope Flag enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		count_warnings += 1;
+	}
+
+	if ((sensor_data_t_exploration.pressure_data <= PRES_THRESHOLD_MIN)
+			|| (sensor_data_t_exploration.pressure_data >= PRES_THRESHOLD_MAX)) {
+
+		// Set PRESSURE_Flag to WARNING
+		PRESSURE_Flag = WARNING;
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "Pressure Flag enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		count_warnings += 1;
+	}
+
+	if (sensor_data_t_exploration.humidity_data <= HUM_THRESHOLD_MAX) {
+
+		// Set HUMIDITY_Flag to WARNING
+		HUMIDITY_Flag = WARNING;
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "Humidity Flag enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		count_warnings += 1;
+	}
+
+	if (count_warnings == 2) {
+		reset_sensor_warning_flags();
+		count_warnings = 0;
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "EXPLORATION_WARNING_STATE enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		// Set the EXPLORATION_WARNING_STATE flag to 1
+		EXPLORATION_WARNING_STATE = 1;
+	}
+
+	// Used for testing EXPLORATION_WARNING_STATE
+	int stateOfPushButton = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4);
+	if (stateOfPushButton == 1) {
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "EXPLORATION_WARNING_STATE enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		// Set the EXPLORATION_WARNING_STATE flag to 1
+		EXPLORATION_WARNING_STATE = 1;
+	}
+}
+
+static void exploration_warning(void) {
+	// Toggle WARNING LED every 3 seconds.
+	if ((HAL_GetTick() - time_EXPLORATION_WARNING_LED) > 3000) {
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+		time_EXPLORATION_WARNING_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+	}
+
+	// send WARNING mode: SOS
+	memset(message_print, 0, strlen(message_print));
+	sprintf(message_print, "WARNING mode: SOS \r\n");
+	HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print),
+			0xFFFF);
+}
+
+static void battle(void) {
+
+	// In BATTLE MODE, only those sensors mounted on Pixie are read periodically every ONE second.
+	if (HAL_GetTick() - time_BATTLE_SENSOR > 1000) {
+
+		// Reset variables
+		sensor_data_t_battle.temperature_data = 0;
+		sensor_data_t_battle.humidity_data = 0;
+		sensor_data_t_battle.pressure_data = 0;
+		sensor_data_t_battle.magnetometer_raw_data[3] = 0;
+		sensor_data_t_battle.magnetometer_data[3] = 0;
+		sensor_data_t_battle.gyroscope_raw_data[3] = 0;
+		sensor_data_t_battle.gyroscope_data[3] = 0;
+		sensor_data_t_battle.accelerometer_raw_data[3] = 0;
+		sensor_data_t_battle.accelerometer_data[3] = 0;
+
+		// Read Humidity readings
+		sensor_data_t_battle.humidity_data = BSP_HSENSOR_ReadHumidity();
+
+		/*	Read the pressure in units (Pascal)
+		 * 	One hectopascal(hPa) is equal to exactly 100 Pascals. */
+		sensor_data_t_battle.pressure_data = BSP_PSENSOR_ReadPressure()
+				* 100.0f;
+
+		// Read Temperature Readings
+		sensor_data_t_battle.temperature_data = BSP_TSENSOR_ReadTemp();
+
+		// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
+		BSP_MAGNETO_GetXYZ(sensor_data_t_battle.magnetometer_raw_data);
+		sensor_data_t_battle.magnetometer_data[0] =
+				(float) sensor_data_t_battle.magnetometer_raw_data[0] / 1000.0f;
+		sensor_data_t_battle.magnetometer_data[1] =
+				(float) sensor_data_t_battle.magnetometer_raw_data[1] / 1000.0f;
+		sensor_data_t_battle.magnetometer_data[2] =
+				(float) sensor_data_t_battle.magnetometer_raw_data[2] / 1000.0f;
+
+		// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
+		BSP_GYRO_GetXYZ(sensor_data_t_battle.gyroscope_raw_data);
+		sensor_data_t_battle.gyroscope_data[0] =
+				sensor_data_t_battle.gyroscope_raw_data[0] / 1000.0f;
+		sensor_data_t_battle.gyroscope_data[1] =
+				sensor_data_t_battle.gyroscope_raw_data[1] / 1000.0f;
+		sensor_data_t_battle.gyroscope_data[2] =
+				sensor_data_t_battle.gyroscope_raw_data[2] / 1000.0f;
+
+		/* Pass in the memory address to pDataXYZ Pointer to get XYZ accelerometer values.
+		 * The function below returns 16 bit integers which are 100 * acceleration(m/s^2).
+		 * Convert to float to print the actual acceleration*/
+		BSP_ACCELERO_AccGetXYZ(sensor_data_t_battle.accelerometer_raw_data);
+		sensor_data_t_battle.accelerometer_data[0] =
+				sensor_data_t_battle.accelerometer_raw_data[0] / 100.0f;
+		sensor_data_t_battle.accelerometer_data[1] =
+				sensor_data_t_battle.accelerometer_raw_data[1] / 100.0f;
+		sensor_data_t_battle.accelerometer_data[2] =
+				sensor_data_t_battle.accelerometer_raw_data[2] / 100.0f;
+
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print,
+				"T:%0.2f (deg C), P:%0.2f (Pa), H:%0.2f (%%RH), A:%0.2f:%0.2f:%0.2f(g), G:%0.2f:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss) \r\n",
+				sensor_data_t_battle.temperature_data,
+				sensor_data_t_battle.pressure_data,
+				sensor_data_t_battle.humidity_data,
+				sensor_data_t_battle.accelerometer_data[0],
+				sensor_data_t_battle.accelerometer_data[1],
+				sensor_data_t_battle.accelerometer_data[2],
+				sensor_data_t_battle.gyroscope_data[0],
+				sensor_data_t_battle.gyroscope_data[1],
+				sensor_data_t_battle.gyroscope_data[2],
+				sensor_data_t_battle.magnetometer_data[0],
+				sensor_data_t_battle.magnetometer_data[1],
+				sensor_data_t_battle.magnetometer_data[2]);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+
+		time_BATTLE_SENSOR = HAL_GetTick();
+	}
+
+	// Toggle WARNING LED every 1 second.
+	if ((HAL_GetTick() - time_BATTLE_LED) > 1000) {
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+		time_BATTLE_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+	}
+
+	// Used for testing BATTLE_WARNING_STATE
+	int stateOfPushButton = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2);
+	if (stateOfPushButton == 1) {
+		memset(message_print, 0, strlen(message_print));
+		sprintf(message_print, "BATTLE_WARNING_STATE enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		BATTLE_WARNING_STATE = 1;
+	}
+}
+
+static void read_accelerometer(void) {
+	float accel_data[3];
+	int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
+	BSP_ACCELERO_AccGetXYZ(accel_data_i16);  // read accelerometer
+	// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
+	accel_data[0] = (float) accel_data_i16[0] / 100.0f;
+	accel_data[1] = (float) accel_data_i16[1] / 100.0f;
+	accel_data[2] = (float) accel_data_i16[2] / 100.0f;
+	printf("\nAccel:\nX: %f; Y: %f; Z: %f", accel_data[0], accel_data[1],
+			accel_data[2]);
+}
+
+/**
+ * @brief  	Set the flags of various sensors to the default state
+ * @note	For example, accflag = SAFE; gyroflag = SAFE; and so on ...
+ * @retval	None
+ */
+static void reset_sensor_warning_flags(void) {
+	GYROSCOPE_Flag = SAFE;
+	MAGNETOMETER_Flag = SAFE;
+	PRESSURE_Flag = SAFE;
+	HUMIDITY_Flag = SAFE;
+}
+
 static void MX_GPIO_Init(void) //For LED and PB
 {
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
 
 	//GPIO Ports Clock Enable
-	__HAL_RCC_GPIOB_CLK_ENABLE();// For LED
+	__HAL_RCC_GPIOA_CLK_ENABLE();// D8 Arduino Pinout
+	__HAL_RCC_GPIOB_CLK_ENABLE(); // For LED
 	__HAL_RCC_GPIOC_CLK_ENABLE(); // For Push Button
 
 	//Configure GPIO pin Output Level // Pin Initialization
@@ -197,56 +527,21 @@ static void MX_GPIO_Init(void) //For LED and PB
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+	// Testing single press and double press
+	// Configuration of D7 as input
+	GPIO_InitStruct.Pin = ARD_D7_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL; // Pull-down activation
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct); // PA4
+
+	// Configuration of D8 as input
+	GPIO_InitStruct.Pin = ARD_D8_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL; // Pull-down activation
+	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct); // PB2
+
 	// Enable NVIC EXTI line 13
 	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-}
-
-static void exploration(void) {
-	if (HAL_GetTick() - time_one_second > 1000) {
-
-		// Reset variables
-		exploration_t_1.humidity_data = 0;
-		exploration_t_1.pressure_data = 0;
-		exploration_t_1.magnetometer_raw_data[3] = 0;
-		exploration_t_1.magnetometer_data[3] = 0;
-
-		exploration_t_1.humidity_data = BSP_HSENSOR_ReadHumidity();
-		exploration_t_1.pressure_data = BSP_PSENSOR_ReadPressure();
-
-		// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
-		BSP_MAGNETO_GetXYZ(exploration_t_1.magnetometer_raw_data);
-
-		exploration_t_1.magnetometer_data[0] =
-				(float) exploration_t_1.magnetometer_raw_data[0] / 1000.0f;
-		exploration_t_1.magnetometer_data[1] =
-				(float) exploration_t_1.magnetometer_raw_data[1] / 1000.0f;
-		exploration_t_1.magnetometer_data[2] =
-				(float) exploration_t_1.magnetometer_raw_data[2] / 1000.0f;
-
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "M:%f:%f:%f, P:%f, H:%f \r\n",
-				exploration_t_1.magnetometer_data[0],
-				exploration_t_1.magnetometer_data[1],
-				exploration_t_1.magnetometer_data[2],
-				exploration_t_1.pressure_data,
-				exploration_t_1.humidity_data);
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
-
-		time_one_second = HAL_GetTick();
-	}
-}
-
-static void read_accelerometer(void) {
-	float accel_data[3];
-	int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
-	BSP_ACCELERO_AccGetXYZ(accel_data_i16);  // read accelerometer
-	// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-	accel_data[0] = (float) accel_data_i16[0] / 100.0f;
-	accel_data[1] = (float) accel_data_i16[1] / 100.0f;
-	accel_data[2] = (float) accel_data_i16[2] / 100.0f;
-	printf("\nAccel:\nX: %f; Y: %f; Z: %f", accel_data[0], accel_data[1],
-			accel_data[2]);
 }
 
 /**
@@ -282,15 +577,4 @@ static void UART1_Init(void) {
 		while (1)
 			;
 	}
-}
-
-/**
- * @brief  Set the flags of various sensors to the default state
- *
- * @note	For example, accflag = SAFE; gyroflag = SAFE; and so on ...
- *
- * @retval	None
- */
-static void reset(void) {
-
 }
