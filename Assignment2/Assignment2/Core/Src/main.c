@@ -19,8 +19,8 @@
 #define TEMP_THRESHOLD_MAX 70.0 // 70 degrees Celcius
 
 #define MAG_THRESHOLD 2.0 // Max is 4
-#define HUM_THRESHOLD 48.0
 
+#define HUM_THRESHOLD 30.0
 #define PRES_THRESHOLD_MIN 90000.0
 #define PRES_THRESHOLD_MAX 105000.0
 
@@ -39,7 +39,7 @@ void SystemClock_Config(void);
 static void exploration(void);
 static void battle(void);
 static void charge_fluxer_battery(void);
-static void reset_sensor_warning_flags(void);
+void reset_sensor_warning_flags(void);
 
 /* Global Variables ------------------------------------------------------------------*/
 uint32_t T1, T2; // counting single and double press
@@ -99,6 +99,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 }
 
 int main(void) {
+
 	/* Reset of all peripherals */
 	HAL_Init();
 	MX_GPIO_Init(); // initialize PB14, pin connected to LED2
@@ -113,9 +114,9 @@ int main(void) {
 	BSP_MAGNETO_Init();	 // initialize magnetometer
 
 	/* sensor interrupt configuration*/
-	// 		accelero_interrupt_config();
+	// accelero_interrupt_config();
 	/*enable NVIC EXTI interrupt*/
-	// 		HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+	// HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 	/* Exploration Mode: Print only once*/
 	//memset(message_print, 0, strlen(message_print));
 	snprintf(message_print, MESSAGE_SIZE, "Entering EXPLORATION Mode \r\n");
@@ -134,6 +135,7 @@ int main(void) {
 			press = 2;
 			flag = 0;
 		}
+
 		mode_selection();
 	}
 }
@@ -142,7 +144,6 @@ int main(void) {
  * @brief  	Selects different modes such as Exploration and Battle and selects
  *			different states such as Normal and Warning in the respective modes.
  * @note
- *
  * @retval	None
  */
 static void mode_selection() {
@@ -155,6 +156,7 @@ static void mode_selection() {
 	} else if (EXPLORATION == 1 && EXPLORATION_WARNING_STATE == 1) {
 		// Come to the Warning State through interrupts or polling
 		exploration_warning();
+
 		if (press == 1) {
 			// Clear the warning and go back to Exploration mode
 			EXPLORATION_WARNING_STATE = 0;
@@ -199,6 +201,7 @@ static void mode_selection() {
 		press = 0; // reset the press flag
 	} else if (BATTLE == 1 && BATTLE_WARNING_STATE == 1) {
 		battle_warning();
+
 		if (press == 1) {
 			// Clear the warning and go back to Battle mode
 			BATTLE_WARNING_STATE = 0;
@@ -571,7 +574,7 @@ static void battle_warning(void) {
  * @note	For example, accflag = SAFE; gyroflag = SAFE; and so on ...
  * @retval	None
  */
-static void reset_sensor_warning_flags(void) {
+void reset_sensor_warning_flags(void) {
 	GYROSCOPE_Flag = SAFE;
 	MAGNETOMETER_Flag = SAFE;
 	PRESSURE_Flag = SAFE;
