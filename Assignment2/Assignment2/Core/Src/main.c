@@ -19,7 +19,7 @@
 #define TEMP_THRESHOLD_MAX 70.0 // 70 degrees Celcius
 
 #define MAG_THRESHOLD 2.0 // Max is 4
-#define HUM_THRESHOLD_MAX 48.0
+#define HUM_THRESHOLD 48.0
 
 #define PRES_THRESHOLD_MIN 90000.0
 #define PRES_THRESHOLD_MAX 105000.0
@@ -27,39 +27,43 @@
 #define WARNING 1
 #define SAFE 0
 
+#define MESSAGE_SIZE 300
+
 /* Function Declarations ------------------------------------------------------------------*/
-// extern void initialise_monitor_handles(void); // for semi-hosting support (printf)
 static void UART1_Init(void);
 static void mode_selection(void);
 static void MX_GPIO_Init(void);
-static void read_accelerometer(void);
 static void exploration_warning(void);
+static void battle_warning(void);
 void SystemClock_Config(void);
 static void exploration(void);
 static void battle(void);
+static void charge_fluxer_battery(void);
 static void reset_sensor_warning_flags(void);
 
 /* Global Variables ------------------------------------------------------------------*/
 uint32_t T1, T2; // counting single and double press
 UART_HandleTypeDef huart1; // huart1 variable of type UART_HANDLER
 uint8_t flag = 0, press = 0, EXPLORATION = 1, EXPLORATION_WARNING_STATE = 0,
-		BATTLE = 0, BATTLE_WARNING_STATE = 0, count_warnings = 0;
+		BATTLE = 0, BATTLE_WARNING_STATE = 0, count_warnings = 0,
+		fluxer_battery = 10;
 
-char message_print[300]; // array buffer used for UART1 transmission
+char message_print[MESSAGE_SIZE]; // array buffer used for UART1 transmission
 
 uint32_t time_EXPLORATION_SENSOR = 0;
 uint32_t time_EXPLORATION_WARNING_LED = 0;
+uint32_t time_EXPLORATION_WARNING_MESSAGE = 0;
 
 uint32_t time_BATTLE_SENSOR = 0;
 uint32_t time_BATTLE_WARNING_LED = 0;
+uint32_t time_BATTLE_WARNING_MESSAGE = 0;
 uint32_t time_BATTLE_LED = 0;
+uint32_t time_fluxer = 0;
 
 volatile uint8_t GYROSCOPE_Flag = SAFE, MAGNETOMETER_Flag = SAFE,
 		PRESSURE_Flag = SAFE, HUMIDITY_Flag = SAFE;
 
 typedef struct sensor_data_t {
-	uint8_t battery_level;
-
 	float temperature_data;
 	float humidity_data;
 	float pressure_data;
@@ -95,9 +99,6 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 }
 
 int main(void) {
-
-	// initialise_monitor_handles();
-
 	/* Reset of all peripherals */
 	HAL_Init();
 	MX_GPIO_Init(); // initialize PB14, pin connected to LED2
@@ -116,8 +117,8 @@ int main(void) {
 	/*enable NVIC EXTI interrupt*/
 	// 		HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 	/* Exploration Mode: Print only once*/
-	memset(message_print, 0, strlen(message_print));
-	sprintf(message_print, "Entering EXPLORATION Mode \r\n");
+	//memset(message_print, 0, strlen(message_print));
+	snprintf(message_print, MESSAGE_SIZE, "Entering EXPLORATION Mode \r\n");
 	HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print),
 			0xFFFF);
 
@@ -170,8 +171,8 @@ static void mode_selection() {
 		 * immediately upon entering the BATTLE mode.
 		 * The press flag is cleared later in mode_selection()
 		 */
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Entering BATTLE Mode \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Entering BATTLE Mode \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 
@@ -182,7 +183,7 @@ static void mode_selection() {
 
 	/* Battle Mode */
 	if (EXPLORATION == 0 && BATTLE_WARNING_STATE == 0 && BATTLE == 1
-			&& press <= 1) {
+			&& press == 0) {
 		// Battle state
 		battle();
 		press = 0;
@@ -193,10 +194,11 @@ static void mode_selection() {
 		 * 	single press triggers BATTERY_CHARGING,
 		 * 	i.e., after single press, Fluxer is charged with 1/10 energy
 		 * 	of its capacity.*/
-		// charge_battery();
+		charge_fluxer_battery();
 		BATTLE = 1;
 		press = 0; // reset the press flag
 	} else if (BATTLE == 1 && BATTLE_WARNING_STATE == 1) {
+		battle_warning();
 		if (press == 1) {
 			// Clear the warning and go back to Battle mode
 			BATTLE_WARNING_STATE = 0;
@@ -263,12 +265,12 @@ static void exploration(void) {
 		sensor_data_t_exploration.gyroscope_data[2] =
 				sensor_data_t_exploration.gyroscope_raw_data[2] / 1000.0f;
 
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print,
-				"G:%0.2f:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss), P:%0.2f (Pa), H:%0.2f (%%RH) \r\n",
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"G:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss), P:%0.2f (Pa), H:%0.2f (%%RH) \r\n",
 				sensor_data_t_exploration.gyroscope_data[0],
 				sensor_data_t_exploration.gyroscope_data[1],
-				sensor_data_t_exploration.gyroscope_data[2],
+				// sensor_data_t_exploration.gyroscope_data[2],
 				sensor_data_t_exploration.magnetometer_data[0],
 				sensor_data_t_exploration.magnetometer_data[1],
 				sensor_data_t_exploration.magnetometer_data[2],
@@ -303,8 +305,8 @@ static void exploration(void) {
 
 		// Set MAGNETOMETER_Flag to WARNING
 		MAGNETOMETER_Flag = WARNING;
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Magnetometer Flag enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Magnetometer Flag enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
@@ -317,8 +319,8 @@ static void exploration(void) {
 
 		// Set GYROSCOPE_Flag to WARNING
 		GYROSCOPE_Flag = WARNING;
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Gyroscope Flag enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Gyroscope Flag enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
@@ -329,19 +331,19 @@ static void exploration(void) {
 
 		// Set PRESSURE_Flag to WARNING
 		PRESSURE_Flag = WARNING;
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Pressure Flag enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Pressure Flag enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
 	}
 
-	if (sensor_data_t_exploration.humidity_data <= HUM_THRESHOLD_MAX) {
+	if (sensor_data_t_exploration.humidity_data <= HUM_THRESHOLD) {
 
 		// Set HUMIDITY_Flag to WARNING
 		HUMIDITY_Flag = WARNING;
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "Humidity Flag enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Humidity Flag enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
@@ -350,8 +352,9 @@ static void exploration(void) {
 	if (count_warnings == 2) {
 		reset_sensor_warning_flags();
 		count_warnings = 0;
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "EXPLORATION_WARNING_STATE enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"EXPLORATION_WARNING_STATE enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		// Set the EXPLORATION_WARNING_STATE flag to 1
@@ -361,8 +364,9 @@ static void exploration(void) {
 	// Used for testing EXPLORATION_WARNING_STATE
 	int stateOfPushButton = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4);
 	if (stateOfPushButton == 1) {
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "EXPLORATION_WARNING_STATE enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"EXPLORATION_WARNING_STATE enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		// Set the EXPLORATION_WARNING_STATE flag to 1
@@ -377,11 +381,14 @@ static void exploration_warning(void) {
 		time_EXPLORATION_WARNING_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
 	}
 
-	// send WARNING mode: SOS
-	memset(message_print, 0, strlen(message_print));
-	sprintf(message_print, "WARNING mode: SOS \r\n");
-	HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print),
-			0xFFFF);
+	// Send WARNING mode: SOS once every 1 second.
+	if ((HAL_GetTick() - time_EXPLORATION_WARNING_MESSAGE) > 1000) {
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "WARNING mode: SOS \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		time_EXPLORATION_WARNING_MESSAGE = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+	}
 }
 
 static void battle(void) {
@@ -440,18 +447,18 @@ static void battle(void) {
 		sensor_data_t_battle.accelerometer_data[2] =
 				sensor_data_t_battle.accelerometer_raw_data[2] / 100.0f;
 
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print,
-				"T:%0.2f (deg C), P:%0.2f (Pa), H:%0.2f (%%RH), A:%0.2f:%0.2f:%0.2f(g), G:%0.2f:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss) \r\n",
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"T:%0.2f (deg C), P:%0.2f (Pa), H:%0.2f (%%RH), A:%0.2f (g), G:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss) \r\n",
 				sensor_data_t_battle.temperature_data,
 				sensor_data_t_battle.pressure_data,
 				sensor_data_t_battle.humidity_data,
-				sensor_data_t_battle.accelerometer_data[0],
-				sensor_data_t_battle.accelerometer_data[1],
+				// sensor_data_t_battle.accelerometer_data[0],
+				// sensor_data_t_battle.accelerometer_data[1],
 				sensor_data_t_battle.accelerometer_data[2],
 				sensor_data_t_battle.gyroscope_data[0],
 				sensor_data_t_battle.gyroscope_data[1],
-				sensor_data_t_battle.gyroscope_data[2],
+				// sensor_data_t_battle.gyroscope_data[2],
 				sensor_data_t_battle.magnetometer_data[0],
 				sensor_data_t_battle.magnetometer_data[1],
 				sensor_data_t_battle.magnetometer_data[2]);
@@ -464,30 +471,99 @@ static void battle(void) {
 	// Toggle WARNING LED every 1 second.
 	if ((HAL_GetTick() - time_BATTLE_LED) > 1000) {
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
-		time_BATTLE_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+		time_BATTLE_LED = HAL_GetTick(); // reset time_BATTLE_LED
+	}
+
+	// Self firing Fluxer every 5s.
+	if (HAL_GetTick() - time_fluxer > 5000 && fluxer_battery >= 2) {
+
+		fluxer_battery -= 2;
+
+		time_fluxer = HAL_GetTick(); // reset time_fluxer
+
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "Battery: %d/10 \r\n",
+				fluxer_battery);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+	}
+
+	/**
+	 * @brief	Check if the sensors have reached their threshold, then if ANY 2
+	 * 			of the sensors have exceeded their maximum/minimum threshold,
+	 * 			go to the WARNING state.
+	 * @steps	1. Raise flags if threshold is reached.
+	 * 			2. Type-cast variables explicitly to (int) to use abs()
+	 * 			3. Reset flags to SAFE before leaving exploration mode
+	 * 			and reaching to warning state.
+	 * 			4. Reset count_warnings counter to 0.
+	 * 			5. Set the EXPLORATION_WARNING_STATE flag to 1.
+	 */
+	if ((sensor_data_t_battle.temperature_data >= 70
+			|| sensor_data_t_battle.temperature_data < -20)
+			|| sensor_data_t_battle.humidity_data <= HUM_THRESHOLD
+			|| (sensor_data_t_battle.pressure_data >= PRES_THRESHOLD_MAX
+					|| sensor_data_t_battle.pressure_data <= PRES_THRESHOLD_MIN)
+			|| sensor_data_t_battle.accelerometer_data[0] >= 10
+			// || sensor_data_t_battle.accelerometer_data[1] >= 1000
+			// || sensor_data_t_battle.accelerometer_data[2] >= 1000
+			|| abs(
+					(int) sensor_data_t_battle.gyroscope_data[0]
+							>= GYRO_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.gyroscope_data[1]
+							>= GYRO_THRESHOLD)
+			// || sensor_data_t_battle.gyroscope_data[2] >= 2000000
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[0]
+							>= MAG_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[1]
+							>= MAG_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[2]
+							>= MAG_THRESHOLD)) {
+		BATTLE_WARNING_STATE = 1;
 	}
 
 	// Used for testing BATTLE_WARNING_STATE
 	int stateOfPushButton = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2);
 	if (stateOfPushButton == 1) {
-		memset(message_print, 0, strlen(message_print));
-		sprintf(message_print, "BATTLE_WARNING_STATE enabled \r\n");
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"BATTLE_WARNING_STATE enabled \r\n");
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		BATTLE_WARNING_STATE = 1;
 	}
 }
 
-static void read_accelerometer(void) {
-	float accel_data[3];
-	int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
-	BSP_ACCELERO_AccGetXYZ(accel_data_i16);  // read accelerometer
-	// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-	accel_data[0] = (float) accel_data_i16[0] / 100.0f;
-	accel_data[1] = (float) accel_data_i16[1] / 100.0f;
-	accel_data[2] = (float) accel_data_i16[2] / 100.0f;
-	printf("\nAccel:\nX: %f; Y: %f; Z: %f", accel_data[0], accel_data[1],
-			accel_data[2]);
+static void charge_fluxer_battery(void) {
+	// Fluxer recharging using PB.
+	if (fluxer_battery <= 10 && BATTLE_WARNING_STATE == 0) {
+		fluxer_battery += 1;
+		press = 0;
+	} else {
+		press = 0;
+	}
+}
+
+static void battle_warning(void) {
+	// Toggle WARNING LED every 3 seconds.
+	if ((HAL_GetTick() - time_BATTLE_WARNING_LED) > 3000) {
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+		time_BATTLE_WARNING_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+	}
+
+	// Warning Message sent every once a second
+	if ((HAL_GetTick() - time_BATTLE_WARNING_MESSAGE) > 1000) {
+		// send BATTLE mode: SOS
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE, "BATTLE mode: SOS \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+		time_BATTLE_WARNING_MESSAGE = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
+	}
 }
 
 /**
