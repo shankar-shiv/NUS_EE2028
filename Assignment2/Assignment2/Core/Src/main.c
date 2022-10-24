@@ -15,6 +15,7 @@
 
 /* Declare Constants ------------------------------------------------------------------*/
 #define GYRO_THRESHOLD 20.0 // based on testing
+#define ACCEL_THRESHOLD 10.0
 #define TEMP_THRESHOLD_MIN -20.0 // -20 degrees Celcius
 #define TEMP_THRESHOLD_MAX 70.0 // 70 degrees Celcius
 
@@ -228,65 +229,43 @@ static void mode_selection() {
  */
 
 static void exploration(void) {
-	// In EXPLORATION MODE, only those sensors mounted on Pixie are read periodically every ONE second
-	if (HAL_GetTick() - time_EXPLORATION_SENSOR > 1000) {
 
-		// Reset variables
-		sensor_data_t_exploration.humidity_data = 0;
-		sensor_data_t_exploration.pressure_data = 0;
-		sensor_data_t_exploration.magnetometer_raw_data[3] = 0;
-		sensor_data_t_exploration.magnetometer_data[3] = 0;
-		sensor_data_t_exploration.gyroscope_raw_data[3] = 0;
-		sensor_data_t_exploration.gyroscope_data[3] = 0;
+	// Reset variables
+	sensor_data_t_exploration.humidity_data = 0;
+	sensor_data_t_exploration.pressure_data = 0;
+	sensor_data_t_exploration.magnetometer_raw_data[3] = 0;
+	sensor_data_t_exploration.magnetometer_data[3] = 0;
+	sensor_data_t_exploration.gyroscope_raw_data[3] = 0;
+	sensor_data_t_exploration.gyroscope_data[3] = 0;
 
-		// Read Humidity readings
-		sensor_data_t_exploration.humidity_data = BSP_HSENSOR_ReadHumidity();
-		// Read the pressure in units (Pascal)
-		// One hectopascal(hPa) is equal to exactly 100 Pascals.
-		sensor_data_t_exploration.pressure_data = BSP_PSENSOR_ReadPressure()
-				* 100.0f;
+	// Read Humidity readings
+	sensor_data_t_exploration.humidity_data = BSP_HSENSOR_ReadHumidity();
+	// Read the pressure in units (Pascal)
+	// One hectopascal(hPa) is equal to exactly 100 Pascals.
+	sensor_data_t_exploration.pressure_data = BSP_PSENSOR_ReadPressure()
+			* 100.0f;
 
-		// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
-		BSP_MAGNETO_GetXYZ(sensor_data_t_exploration.magnetometer_raw_data);
+	// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
+	BSP_MAGNETO_GetXYZ(sensor_data_t_exploration.magnetometer_raw_data);
 
-		sensor_data_t_exploration.magnetometer_data[0] =
-				(float) sensor_data_t_exploration.magnetometer_raw_data[0]
-						/ 1000.0f;
-		sensor_data_t_exploration.magnetometer_data[1] =
-				(float) sensor_data_t_exploration.magnetometer_raw_data[1]
-						/ 1000.0f;
-		sensor_data_t_exploration.magnetometer_data[2] =
-				(float) sensor_data_t_exploration.magnetometer_raw_data[2]
-						/ 1000.0f;
+	sensor_data_t_exploration.magnetometer_data[0] =
+			(float) sensor_data_t_exploration.magnetometer_raw_data[0]
+					/ 1000.0f;
+	sensor_data_t_exploration.magnetometer_data[1] =
+			(float) sensor_data_t_exploration.magnetometer_raw_data[1]
+					/ 1000.0f;
+	sensor_data_t_exploration.magnetometer_data[2] =
+			(float) sensor_data_t_exploration.magnetometer_raw_data[2]
+					/ 1000.0f;
 
-		// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
-		BSP_GYRO_GetXYZ(sensor_data_t_exploration.gyroscope_raw_data);
-		sensor_data_t_exploration.gyroscope_data[0] =
-				sensor_data_t_exploration.gyroscope_raw_data[0] / 1000.0f;
-		sensor_data_t_exploration.gyroscope_data[1] =
-				sensor_data_t_exploration.gyroscope_raw_data[1] / 1000.0f;
-		sensor_data_t_exploration.gyroscope_data[2] =
-				sensor_data_t_exploration.gyroscope_raw_data[2] / 1000.0f;
-
-		//memset(message_print, 0, strlen(message_print));
-		snprintf(message_print, MESSAGE_SIZE,
-				"G:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss), P:%0.2f (Pa), H:%0.2f (%%RH) \r\n",
-				sensor_data_t_exploration.gyroscope_data[0],
-				sensor_data_t_exploration.gyroscope_data[1],
-				// sensor_data_t_exploration.gyroscope_data[2],
-				sensor_data_t_exploration.magnetometer_data[0],
-				sensor_data_t_exploration.magnetometer_data[1],
-				sensor_data_t_exploration.magnetometer_data[2],
-				sensor_data_t_exploration.pressure_data,
-				sensor_data_t_exploration.humidity_data);
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
-
-		time_EXPLORATION_SENSOR = HAL_GetTick();
-	}
-
-	// EXPLORATION LED will always be ON
-	HAL_GPIO_WritePin(GPIOB, LED2_Pin, GPIO_PIN_SET);
+	// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
+	BSP_GYRO_GetXYZ(sensor_data_t_exploration.gyroscope_raw_data);
+	sensor_data_t_exploration.gyroscope_data[0] =
+			sensor_data_t_exploration.gyroscope_raw_data[0] / 1000.0f;
+	sensor_data_t_exploration.gyroscope_data[1] =
+			sensor_data_t_exploration.gyroscope_raw_data[1] / 1000.0f;
+	sensor_data_t_exploration.gyroscope_data[2] =
+			sensor_data_t_exploration.gyroscope_raw_data[2] / 1000.0f;
 
 	/**
 	 * @brief	Check if the sensors have reached their threshold, then if ANY 2
@@ -329,28 +308,57 @@ static void exploration(void) {
 		count_warnings += 1;
 	}
 
-	if ((sensor_data_t_exploration.pressure_data <= PRES_THRESHOLD_MIN)
-			|| (sensor_data_t_exploration.pressure_data >= PRES_THRESHOLD_MAX)) {
+	if (((sensor_data_t_exploration.pressure_data <= PRES_THRESHOLD_MIN)
+			|| (sensor_data_t_exploration.pressure_data >= PRES_THRESHOLD_MAX))
+			&& PRESSURE_Flag != WARNING) {
 
 		// Set PRESSURE_Flag to WARNING
 		PRESSURE_Flag = WARNING;
 		//memset(message_print, 0, strlen(message_print));
-		snprintf(message_print, MESSAGE_SIZE, "Pressure Flag enabled \r\n");
+		snprintf(message_print, MESSAGE_SIZE,
+				"Pressure Flag enabled P:%0.2f (Pa) \r\n",
+				sensor_data_t_exploration.pressure_data);
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
 	}
 
-	if (sensor_data_t_exploration.humidity_data <= HUM_THRESHOLD) {
+	if ((sensor_data_t_exploration.humidity_data <= HUM_THRESHOLD)
+			&& (HUMIDITY_Flag != WARNING)) {
 
 		// Set HUMIDITY_Flag to WARNING
 		HUMIDITY_Flag = WARNING;
 		//memset(message_print, 0, strlen(message_print));
-		snprintf(message_print, MESSAGE_SIZE, "Humidity Flag enabled \r\n");
+		snprintf(message_print, MESSAGE_SIZE,
+				"Humidity Flag enabled , H:%0.2f (%%RH) \r\n",
+				sensor_data_t_exploration.humidity_data);
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 		count_warnings += 1;
 	}
+
+	// In EXPLORATION MODE, only those sensors mounted on Pixie are read periodically every ONE second
+	if ((HAL_GetTick() - time_EXPLORATION_SENSOR > 1000)
+			&& (count_warnings != 2)) {
+		//memset(message_print, 0, strlen(message_print));
+		snprintf(message_print, MESSAGE_SIZE,
+				"G:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss), P:%0.2f (Pa), H:%0.2f (%%RH) \r\n",
+				sensor_data_t_exploration.gyroscope_data[0],
+				sensor_data_t_exploration.gyroscope_data[1],
+				// sensor_data_t_exploration.gyroscope_data[2],
+				sensor_data_t_exploration.magnetometer_data[0],
+				sensor_data_t_exploration.magnetometer_data[1],
+				sensor_data_t_exploration.magnetometer_data[2],
+				sensor_data_t_exploration.pressure_data,
+				sensor_data_t_exploration.humidity_data);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
+				strlen(message_print), 0xFFFF);
+
+		time_EXPLORATION_SENSOR = HAL_GetTick();
+	}
+
+	// EXPLORATION LED will always be ON
+	HAL_GPIO_WritePin(GPIOB, LED2_Pin, GPIO_PIN_SET);
 
 	if (count_warnings == 2) {
 		reset_sensor_warning_flags();
@@ -396,60 +404,93 @@ static void exploration_warning(void) {
 
 static void battle(void) {
 
+	// Reset variables
+	sensor_data_t_battle.temperature_data = 0;
+	sensor_data_t_battle.humidity_data = 0;
+	sensor_data_t_battle.pressure_data = 0;
+	sensor_data_t_battle.magnetometer_raw_data[3] = 0;
+	sensor_data_t_battle.magnetometer_data[3] = 0;
+	sensor_data_t_battle.gyroscope_raw_data[3] = 0;
+	sensor_data_t_battle.gyroscope_data[3] = 0;
+	sensor_data_t_battle.accelerometer_raw_data[3] = 0;
+	sensor_data_t_battle.accelerometer_data[3] = 0;
+
+	// Read Humidity readings
+	sensor_data_t_battle.humidity_data = BSP_HSENSOR_ReadHumidity();
+
+	/*	Read the pressure in units (Pascal)
+	 * 	One hectopascal(hPa) is equal to exactly 100 Pascals. */
+	sensor_data_t_battle.pressure_data = BSP_PSENSOR_ReadPressure() * 100.0f;
+
+	// Read Temperature Readings
+	sensor_data_t_battle.temperature_data = BSP_TSENSOR_ReadTemp();
+
+	// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
+	BSP_MAGNETO_GetXYZ(sensor_data_t_battle.magnetometer_raw_data);
+	sensor_data_t_battle.magnetometer_data[0] =
+			(float) sensor_data_t_battle.magnetometer_raw_data[0] / 1000.0f;
+	sensor_data_t_battle.magnetometer_data[1] =
+			(float) sensor_data_t_battle.magnetometer_raw_data[1] / 1000.0f;
+	sensor_data_t_battle.magnetometer_data[2] =
+			(float) sensor_data_t_battle.magnetometer_raw_data[2] / 1000.0f;
+
+	// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
+	BSP_GYRO_GetXYZ(sensor_data_t_battle.gyroscope_raw_data);
+	sensor_data_t_battle.gyroscope_data[0] =
+			sensor_data_t_battle.gyroscope_raw_data[0] / 1000.0f;
+	sensor_data_t_battle.gyroscope_data[1] =
+			sensor_data_t_battle.gyroscope_raw_data[1] / 1000.0f;
+	sensor_data_t_battle.gyroscope_data[2] =
+			sensor_data_t_battle.gyroscope_raw_data[2] / 1000.0f;
+
+	/* Pass in the memory address to pDataXYZ Pointer to get XYZ accelerometer values.
+	 * The function below returns 16 bit integers which are 100 * acceleration(m/s^2).
+	 * Convert to float to print the actual acceleration*/
+	BSP_ACCELERO_AccGetXYZ(sensor_data_t_battle.accelerometer_raw_data);
+	sensor_data_t_battle.accelerometer_data[0] =
+			sensor_data_t_battle.accelerometer_raw_data[0] / 100.0f;
+	sensor_data_t_battle.accelerometer_data[1] =
+			sensor_data_t_battle.accelerometer_raw_data[1] / 100.0f;
+	sensor_data_t_battle.accelerometer_data[2] =
+			sensor_data_t_battle.accelerometer_raw_data[2] / 100.0f;
+
+	/**
+	 * @brief	Check if the sensors have reached their threshold, then if ANY
+	 * 			of the sensors have exceeded their maximum/minimum threshold,
+	 * 			go to the WARNING state.
+	 * @steps	1. Raise flags if threshold is reached.
+	 * 			2. Type-cast variables explicitly to (int) to use abs()
+	 * 			3. Set the EXPLORATION_WARNING_STATE flag to 1.
+	 */
+	if ((sensor_data_t_battle.temperature_data >= TEMP_THRESHOLD_MAX
+			|| sensor_data_t_battle.temperature_data < TEMP_THRESHOLD_MIN)
+			|| sensor_data_t_battle.humidity_data <= HUM_THRESHOLD
+			|| (sensor_data_t_battle.pressure_data >= PRES_THRESHOLD_MAX
+					|| sensor_data_t_battle.pressure_data <= PRES_THRESHOLD_MIN)
+			// || sensor_data_t_battle.accelerometer_data[0] >= 10
+			// || sensor_data_t_battle.accelerometer_data[1] >= 1000
+			|| sensor_data_t_battle.accelerometer_data[2] >= ACCEL_THRESHOLD
+			|| abs(
+					(int) sensor_data_t_battle.gyroscope_data[0]
+							>= GYRO_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.gyroscope_data[1]
+							>= GYRO_THRESHOLD)
+			// || sensor_data_t_battle.gyroscope_data[2] >= 2000000
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[0]
+							>= MAG_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[1]
+							>= MAG_THRESHOLD)
+			|| abs(
+					(int) sensor_data_t_battle.magnetometer_data[2]
+							>= MAG_THRESHOLD)) {
+		BATTLE_WARNING_STATE = 1;
+	}
+
 	// In BATTLE MODE, only those sensors mounted on Pixie are read periodically every ONE second.
-	if (HAL_GetTick() - time_BATTLE_SENSOR > 1000) {
-
-		// Reset variables
-		sensor_data_t_battle.temperature_data = 0;
-		sensor_data_t_battle.humidity_data = 0;
-		sensor_data_t_battle.pressure_data = 0;
-		sensor_data_t_battle.magnetometer_raw_data[3] = 0;
-		sensor_data_t_battle.magnetometer_data[3] = 0;
-		sensor_data_t_battle.gyroscope_raw_data[3] = 0;
-		sensor_data_t_battle.gyroscope_data[3] = 0;
-		sensor_data_t_battle.accelerometer_raw_data[3] = 0;
-		sensor_data_t_battle.accelerometer_data[3] = 0;
-
-		// Read Humidity readings
-		sensor_data_t_battle.humidity_data = BSP_HSENSOR_ReadHumidity();
-
-		/*	Read the pressure in units (Pascal)
-		 * 	One hectopascal(hPa) is equal to exactly 100 Pascals. */
-		sensor_data_t_battle.pressure_data = BSP_PSENSOR_ReadPressure()
-				* 100.0f;
-
-		// Read Temperature Readings
-		sensor_data_t_battle.temperature_data = BSP_TSENSOR_ReadTemp();
-
-		// Pass in the memory address to pDataXYZ Pointer to get XYZ magnetometer values.
-		BSP_MAGNETO_GetXYZ(sensor_data_t_battle.magnetometer_raw_data);
-		sensor_data_t_battle.magnetometer_data[0] =
-				(float) sensor_data_t_battle.magnetometer_raw_data[0] / 1000.0f;
-		sensor_data_t_battle.magnetometer_data[1] =
-				(float) sensor_data_t_battle.magnetometer_raw_data[1] / 1000.0f;
-		sensor_data_t_battle.magnetometer_data[2] =
-				(float) sensor_data_t_battle.magnetometer_raw_data[2] / 1000.0f;
-
-		// Pass in the memory address to pDataXYZ Pointer to get XYZ gyroscope values.
-		BSP_GYRO_GetXYZ(sensor_data_t_battle.gyroscope_raw_data);
-		sensor_data_t_battle.gyroscope_data[0] =
-				sensor_data_t_battle.gyroscope_raw_data[0] / 1000.0f;
-		sensor_data_t_battle.gyroscope_data[1] =
-				sensor_data_t_battle.gyroscope_raw_data[1] / 1000.0f;
-		sensor_data_t_battle.gyroscope_data[2] =
-				sensor_data_t_battle.gyroscope_raw_data[2] / 1000.0f;
-
-		/* Pass in the memory address to pDataXYZ Pointer to get XYZ accelerometer values.
-		 * The function below returns 16 bit integers which are 100 * acceleration(m/s^2).
-		 * Convert to float to print the actual acceleration*/
-		BSP_ACCELERO_AccGetXYZ(sensor_data_t_battle.accelerometer_raw_data);
-		sensor_data_t_battle.accelerometer_data[0] =
-				sensor_data_t_battle.accelerometer_raw_data[0] / 100.0f;
-		sensor_data_t_battle.accelerometer_data[1] =
-				sensor_data_t_battle.accelerometer_raw_data[1] / 100.0f;
-		sensor_data_t_battle.accelerometer_data[2] =
-				sensor_data_t_battle.accelerometer_raw_data[2] / 100.0f;
-
+	if (HAL_GetTick() - time_BATTLE_SENSOR > 1000 && BATTLE_WARNING_STATE != 1) {
 		//memset(message_print, 0, strlen(message_print));
 		snprintf(message_print, MESSAGE_SIZE,
 				"T:%0.2f (deg C), P:%0.2f (Pa), H:%0.2f (%%RH), A:%0.2f (g), G:%0.2f:%0.2f (dps), M:%0.3f:%0.3f:%0.3f (Gauss) \r\n",
@@ -478,7 +519,7 @@ static void battle(void) {
 	}
 
 	// Self firing Fluxer every 5s.
-	if (HAL_GetTick() - time_fluxer > 5000 && fluxer_battery >= 2) {
+	if (HAL_GetTick() - time_fluxer > 5000 && fluxer_battery > 1 && BATTLE_WARNING_STATE != 1) {
 
 		fluxer_battery -= 2;
 
@@ -489,44 +530,6 @@ static void battle(void) {
 				fluxer_battery);
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
-	}
-
-	/**
-	 * @brief	Check if the sensors have reached their threshold, then if ANY 2
-	 * 			of the sensors have exceeded their maximum/minimum threshold,
-	 * 			go to the WARNING state.
-	 * @steps	1. Raise flags if threshold is reached.
-	 * 			2. Type-cast variables explicitly to (int) to use abs()
-	 * 			3. Reset flags to SAFE before leaving exploration mode
-	 * 			and reaching to warning state.
-	 * 			4. Reset count_warnings counter to 0.
-	 * 			5. Set the EXPLORATION_WARNING_STATE flag to 1.
-	 */
-	if ((sensor_data_t_battle.temperature_data >= 70
-			|| sensor_data_t_battle.temperature_data < -20)
-			|| sensor_data_t_battle.humidity_data <= HUM_THRESHOLD
-			|| (sensor_data_t_battle.pressure_data >= PRES_THRESHOLD_MAX
-					|| sensor_data_t_battle.pressure_data <= PRES_THRESHOLD_MIN)
-			|| sensor_data_t_battle.accelerometer_data[0] >= 10
-			// || sensor_data_t_battle.accelerometer_data[1] >= 1000
-			// || sensor_data_t_battle.accelerometer_data[2] >= 1000
-			|| abs(
-					(int) sensor_data_t_battle.gyroscope_data[0]
-							>= GYRO_THRESHOLD)
-			|| abs(
-					(int) sensor_data_t_battle.gyroscope_data[1]
-							>= GYRO_THRESHOLD)
-			// || sensor_data_t_battle.gyroscope_data[2] >= 2000000
-			|| abs(
-					(int) sensor_data_t_battle.magnetometer_data[0]
-							>= MAG_THRESHOLD)
-			|| abs(
-					(int) sensor_data_t_battle.magnetometer_data[1]
-							>= MAG_THRESHOLD)
-			|| abs(
-					(int) sensor_data_t_battle.magnetometer_data[2]
-							>= MAG_THRESHOLD)) {
-		BATTLE_WARNING_STATE = 1;
 	}
 
 	// Used for testing BATTLE_WARNING_STATE
@@ -543,7 +546,7 @@ static void battle(void) {
 
 static void charge_fluxer_battery(void) {
 	// Fluxer recharging using PB.
-	if (fluxer_battery <= 10 && BATTLE_WARNING_STATE == 0) {
+	if (fluxer_battery <= 10 && BATTLE_WARNING_STATE != 1) {
 		fluxer_battery += 1;
 		press = 0;
 	} else {
