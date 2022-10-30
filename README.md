@@ -1,4 +1,6 @@
 # NUS_EE2028
+![Dashboard](./Dashboard.png)
+
 - https://wiki.nus.edu.sg/display/EE2028/PCI-2+%5BWeek+4%5D%3A+S1+AY2022-2023+Assignment+1
 
 Learning C
