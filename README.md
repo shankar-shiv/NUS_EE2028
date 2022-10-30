@@ -5,6 +5,8 @@ Learning C
 - https://www.comp.nus.edu.sg/~cs2100/3_ca/tutorials.html
 - https://nus-cs1010.github.io/2122-s1/16-call-by-reference.html
 - https://www.comp.nus.edu.sg/~adi-yoga/CS2100/ch02/
+- http://www.rjhcoding.com/avrc-bit-manip.php
+- https://www.avrfreaks.net/forum/tut-c-bit-manipulation-aka-programming-101?page=all
 
 UML Diagrams, Software Architecture
 - https://nuscs2113-ay1819s1.github.io/website/se-book-adapted/chapters/uml.html
