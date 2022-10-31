@@ -31,16 +31,18 @@
 #define MESSAGE_SIZE 300
 
 /* Function Declarations ------------------------------------------------------------------*/
-static void UART1_Init(void);
-static void mode_selection(void);
-static void MX_GPIO_Init(void);
-static void exploration_warning(void);
-static void battle_warning(void);
 void SystemClock_Config(void);
+static void UART1_Init(void);
+static void MX_GPIO_Init(void);
+
+static void mode_selection(void);
 static void exploration(void);
+static void exploration_warning(void);
 static void battle(void);
+static void battle_warning(void);
 static void charge_fluxer_battery(void);
 void reset_sensor_warning_flags(void);
+void acc_interrupt_config(void);
 
 /* Global Variables ------------------------------------------------------------------*/
 uint32_t T1, T2; // counting single and double press
@@ -97,6 +99,11 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 		flag++;
 		T2 = uwTick;
 	}
+	if (GPIO_Pin == LSM6DSL_INT1_EXTI11_Pin)
+	{
+		EXPLORATION_WARNING_STATE = 1;
+		BATTLE_WARNING_STATE = 1;
+	}
 }
 
 int main(void) {
@@ -113,11 +120,8 @@ int main(void) {
 	BSP_GYRO_Init();	 // initialize gyroscope
 	BSP_PSENSOR_Init();	 // initialize pressure sensor
 	BSP_MAGNETO_Init();	 // initialize magnetometer
+	acc_interrupt_config(); // initialize Accelerometer interrupt
 
-	/* sensor interrupt configuration*/
-	// accelero_interrupt_config();
-	/*enable NVIC EXTI interrupt*/
-	// HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 	/* Exploration Mode: Print only once*/
 	//memset(message_print, 0, strlen(message_print));
 	snprintf(message_print, MESSAGE_SIZE, "Entering EXPLORATION Mode \r\n");
@@ -160,6 +164,7 @@ static void mode_selection() {
 
 		if (press == 1) {
 			// Clear the warning and go back to Exploration mode
+			BATTLE_WARNING_STATE = 0;
 			EXPLORATION_WARNING_STATE = 0;
 			EXPLORATION = 1;
 			press = 0;
@@ -206,6 +211,7 @@ static void mode_selection() {
 		if (press == 1) {
 			// Clear the warning and go back to Battle mode
 			BATTLE_WARNING_STATE = 0;
+			EXPLORATION_WARNING_STATE = 0;
 			BATTLE = 1;
 			press = 0;
 		} else if (press == 2) {
@@ -287,10 +293,10 @@ static void exploration(void) {
 
 		// Set MAGNETOMETER_Flag to WARNING
 		MAGNETOMETER_Flag = WARNING;
-		//memset(message_print, 0, strlen(message_print));
+
 		snprintf(message_print, MESSAGE_SIZE, "Magnetometer Flag enabled \r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print), 0xFFFF);
+
 		count_warnings += 1;
 	}
 
@@ -301,10 +307,10 @@ static void exploration(void) {
 
 		// Set GYROSCOPE_Flag to WARNING
 		GYROSCOPE_Flag = WARNING;
-		//memset(message_print, 0, strlen(message_print));
+
 		snprintf(message_print, MESSAGE_SIZE, "Gyroscope Flag enabled \r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print), 0xFFFF);
+
 		count_warnings += 1;
 	}
 
@@ -314,12 +320,12 @@ static void exploration(void) {
 
 		// Set PRESSURE_Flag to WARNING
 		PRESSURE_Flag = WARNING;
-		//memset(message_print, 0, strlen(message_print));
+
 		snprintf(message_print, MESSAGE_SIZE,
 				"Pressure Flag enabled P:%0.2f (Pa) \r\n",
 				sensor_data_t_exploration.pressure_data);
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print), 0xFFFF);
+
 		count_warnings += 1;
 	}
 
@@ -333,20 +339,22 @@ static void exploration(void) {
 		snprintf(message_print, MESSAGE_SIZE,
 				"Humidity Flag enabled , H:%0.2f (%%RH) \r\n",
 				sensor_data_t_exploration.humidity_data);
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print), 0xFFFF);
+
 		count_warnings += 1;
 	}
 
 	// Code for IR sensor; CCK to reduce the distance, ACCK to increase the distance
-	uint8_t IR_sensor_push_button = HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_14);
-	if ((IR_sensor_push_button == 0) && (IR_Flag != WARNING)) {
+	uint8_t IR_sensor = HAL_GPIO_ReadPin(GPIOA, ARD_D9_Pin);
+	if ((IR_sensor == 0) && (IR_Flag != WARNING)) {
+
 		IR_Flag = WARNING;
 		snprintf(message_print, MESSAGE_SIZE, "INFRARED SENSOR enabled \r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print, strlen(message_print), 0xFFFF);
+
 		count_warnings += 1;
-		IR_sensor_push_button = 1; // reset the state of the push button
+
+		// IR_sensor = 1; // reset the state
 	}
 
 	// In EXPLORATION MODE, only those sensors mounted on Pixie are read periodically every ONE second
@@ -363,8 +371,7 @@ static void exploration(void) {
 				sensor_data_t_exploration.magnetometer_data[2],
 				sensor_data_t_exploration.pressure_data,
 				sensor_data_t_exploration.humidity_data);
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,strlen(message_print), 0xFFFF);
 
 		time_EXPLORATION_SENSOR = HAL_GetTick(); // reset the variable
 	}
@@ -373,33 +380,21 @@ static void exploration(void) {
 	HAL_GPIO_WritePin(GPIOB, LED2_Pin, GPIO_PIN_SET);
 
 	if (count_warnings == 2) {
+
 		reset_sensor_warning_flags();
 		count_warnings = 0;
-		//memset(message_print, 0, strlen(message_print));
-		snprintf(message_print, MESSAGE_SIZE,
-				"EXPLORATION_WARNING_STATE enabled \r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-				strlen(message_print), 0xFFFF);
+
+		snprintf(message_print, MESSAGE_SIZE,"EXPLORATION_WARNING_STATE enabled \r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,strlen(message_print), 0xFFFF);
+
 		// Set the EXPLORATION_WARNING_STATE flag to 1
 		EXPLORATION_WARNING_STATE = 1;
 	}
-
-	// Used for testing EXPLORATION_WARNING_STATE
-	/*int stateOfPushButton = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4);
-	 if (stateOfPushButton == 1) {
-	 //memset(message_print, 0, strlen(message_print));
-	 snprintf(message_print, MESSAGE_SIZE,
-	 "EXPLORATION_WARNING_STATE enabled \r\n");
-	 HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-	 strlen(message_print), 0xFFFF);
-	 // Set the EXPLORATION_WARNING_STATE flag to 1
-	 EXPLORATION_WARNING_STATE = 1;
-	 }*/
 }
 
 static void exploration_warning(void) {
 	// Toggle WARNING LED every 3 seconds.
-	if ((HAL_GetTick() - time_EXPLORATION_WARNING_LED) > 3000) {
+	if ((HAL_GetTick() - time_EXPLORATION_WARNING_LED) > 333) {
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 		time_EXPLORATION_WARNING_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
 	}
@@ -467,7 +462,7 @@ static void battle(void) {
 			sensor_data_t_battle.accelerometer_raw_data[2] / 100.0f;
 
 	// read IR output here
-	uint8_t IR_sensor_push_button = HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_14);
+	uint8_t IR_sensor = HAL_GPIO_ReadPin(GPIOA, ARD_D9_Pin);
 
 	/**
 	 * @brief	Check if the sensors have reached their threshold, then if ANY
@@ -482,22 +477,12 @@ static void battle(void) {
 			|| sensor_data_t_battle.humidity_data <= HUM_THRESHOLD
 			|| (sensor_data_t_battle.pressure_data >= PRES_THRESHOLD_MAX
 					|| sensor_data_t_battle.pressure_data <= PRES_THRESHOLD_MIN)
-			// || sensor_data_t_battle.accelerometer_data[0] >= 10
-			// || sensor_data_t_battle.accelerometer_data[1] >= 1000
-			|| sensor_data_t_battle.accelerometer_data[2] <= ACCEL_THRESHOLD
-			|| abs(
-			/*(int)*/sensor_data_t_battle.gyroscope_data[0] >= GYRO_THRESHOLD)
-			|| abs(
-			/*(int)*/sensor_data_t_battle.gyroscope_data[1] >= GYRO_THRESHOLD)
-			// || sensor_data_t_battle.gyroscope_data[2] <= GYRO_THRESHOLD
-			|| (abs(
-			/*(int)*/sensor_data_t_battle.magnetometer_data[0]) >= MAG_THRESHOLD)
-			|| (abs(
-			/*(int)*/sensor_data_t_battle.magnetometer_data[1]) >= MAG_THRESHOLD)
-			|| (abs(
-			/*(int)*/sensor_data_t_battle.magnetometer_data[2]) >= MAG_THRESHOLD)
-			|| (IR_sensor_push_button == 0)) {
+			|| (abs(sensor_data_t_battle.magnetometer_data[0]) >= MAG_THRESHOLD)
+			|| (abs(sensor_data_t_battle.magnetometer_data[1]) >= MAG_THRESHOLD)
+			|| (abs(sensor_data_t_battle.magnetometer_data[2]) >= MAG_THRESHOLD)
+			|| (IR_sensor == 0)) {
 		BATTLE_WARNING_STATE = 1;
+		// IR_sensor = 1;
 	}
 
 	// In BATTLE MODE, only those sensors mounted on Pixie are read periodically every ONE second.
@@ -509,8 +494,6 @@ static void battle(void) {
 				sensor_data_t_battle.temperature_data,
 				sensor_data_t_battle.pressure_data,
 				sensor_data_t_battle.humidity_data,
-				// sensor_data_t_battle.accelerometer_data[0],
-				// sensor_data_t_battle.accelerometer_data[1],
 				sensor_data_t_battle.accelerometer_data[2],
 				sensor_data_t_battle.gyroscope_data[0],
 				sensor_data_t_battle.gyroscope_data[1],
@@ -534,6 +517,8 @@ static void battle(void) {
 	if (HAL_GetTick() - time_fluxer > 5000 && fluxer_battery > 1
 			&& BATTLE_WARNING_STATE != 1) {
 
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET); //On Buzzer
+
 		fluxer_battery -= 2;
 
 		time_fluxer = HAL_GetTick(); // reset time_fluxer
@@ -544,17 +529,7 @@ static void battle(void) {
 		HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
 				strlen(message_print), 0xFFFF);
 	}
-
-	// Used for testing BATTLE_WARNING_STATE
-	/*int stateOfPushButton = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2);
-	 if (stateOfPushButton == 1) {
-	 //memset(message_print, 0, strlen(message_print));
-	 snprintf(message_print, MESSAGE_SIZE,
-	 "BATTLE_WARNING_STATE enabled \r\n");
-	 HAL_UART_Transmit(&huart1, (uint8_t*) message_print,
-	 strlen(message_print), 0xFFFF);
-	 BATTLE_WARNING_STATE = 1;
-	 }*/
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET); //Off Buzzer
 }
 
 static void charge_fluxer_battery(void) {
@@ -569,7 +544,7 @@ static void charge_fluxer_battery(void) {
 
 static void battle_warning(void) {
 	// Toggle WARNING LED every 3 seconds.
-	if ((HAL_GetTick() - time_BATTLE_WARNING_LED) > 3000) {
+	if ((HAL_GetTick() - time_BATTLE_WARNING_LED) > 333) {
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 		time_BATTLE_WARNING_LED = HAL_GetTick(); // reset time_EXPLORATION_WARNING_LED
 	}
@@ -598,15 +573,30 @@ void reset_sensor_warning_flags(void) {
 	IR_Flag = SAFE;
 }
 
+/**
+ * @brief  	Set LSM6DSL to detect freefall and eanble INT1
+ * @note
+ * @retval	None
+ */
+void acc_interrupt_config(void)
+{
+	//1000 0000 set bit[7] to enable interrupts
+	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1, 0x80);
+	//0000 1000 FF_Dur [4:0] = 00001 & FF_Ths [2:0] = 000
+	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_FREE_FALL, 0x08);
+	//0001 0000 Enables bit 4 of MD1_CFG Register
+	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_MD1_CFG, 0x10);
+}
+
 static void MX_GPIO_Init(void) //For LED and PB
 {
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
 
 	//GPIO Ports Clock Enable
-	__HAL_RCC_GPIOA_CLK_ENABLE();// D8 Arduino Pinout
-	__HAL_RCC_GPIOB_CLK_ENABLE(); // For LED
-	__HAL_RCC_GPIOC_CLK_ENABLE(); // For Push Button
-	__HAL_RCC_GPIOD_CLK_ENABLE();
+	__HAL_RCC_GPIOA_CLK_ENABLE();// Buzzer output
+	__HAL_RCC_GPIOB_CLK_ENABLE();// For LED
+	__HAL_RCC_GPIOC_CLK_ENABLE();// For Push Button
+	__HAL_RCC_GPIOD_CLK_ENABLE();// IR Sensor and LSM6DSL interrupt
 
 	//Configure GPIO pin Output Level // Pin Initialization
 	HAL_GPIO_WritePin(GPIOB, LED2_Pin, GPIO_PIN_RESET);
@@ -618,23 +608,29 @@ static void MX_GPIO_Init(void) //For LED and PB
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-	// Configuration of BUTTON_EXTI13_Pin (GPIO-C Pin-13) as AF
+	//Configuration of D8 as output for Buzzer
+	GPIO_InitStruct.Pin = ARD_D8_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct); // PB8
+
+	//Configuration of BUTTON_EXTI13_Pin (GPIO-C Pin-13) as AF
 	GPIO_InitStruct.Pin = BUTTON_EXTI13_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-	//Testing IR sensor - Configuration of D2 as input
-	GPIO_InitStruct.Pin = ARD_D2_Pin;
+	//Configuration of D9 as input for IR Sensor
+	GPIO_InitStruct.Pin = ARD_D9_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull = GPIO_PULLUP; // Pull-UP
-	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+	GPIO_InitStruct.Pull = GPIO_PULLUP; // Pull-UP / not sure?
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	// Configuration of D8 as input
-	//	GPIO_InitStruct.Pin = ARD_D8_Pin;
-	//	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	//	GPIO_InitStruct.Pull = GPIO_NOPULL; // Pull-down activation
-	//	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct); // PB2
+	// Configuration of LSM6DSL EXTI 11
+	GPIO_InitStruct.Pin = LSM6DSL_INT1_EXTI11_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct); // PD11
 
 	// Enable NVIC EXTI line 13
 	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
@@ -674,3 +670,4 @@ static void UART1_Init(void) {
 			;
 	}
 }
+
